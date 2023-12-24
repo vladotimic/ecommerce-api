@@ -1,0 +1,148 @@
+AUTH API:
+
+/models/User.js:
+- name: required, max and min lenght
+- email: required, unique, validator.isEmail
+- password: required string
+- role: enum ['user', 'admin']
+- isVerified: boolean, default false
+- verificationToken: string
+- verificationDate: Date
+- passwordToken: string
+- passwordTokenExpirationDate: Date
+
+create .pre('save') middleware that hash password if password isn't modified.
+create comparePassword(password) method that check if password is correct.
+
+/models/Token.js:
+- refreshToken: string required
+- userAgent: string required
+- ip: string required
+- isValid: boolean, default true.
+- user: ref 'User' table required.
+
+/lib/jwt.js:
+1. createJWT(payload): create JWT token.
+2. isTokenValid(token): verify JWT token.
+3. attachCookieToResponse(res, user, refreshToken): create JWT accessToken with user and refreshToken with user and refreshToken as payload. Create http only cookies for access and refresh tokens. Access should have shorter expiration time (1 day), while refresh should have larger expiration (30 days).
+
+/lib/createHash.js:
+1. createHash(string): use `crypto` module to hash (md5) `string` and digest to `hex`.
+
+/lib/checkPermission.js:
+1. checkPermission(reqUser, resourceId): check if reqUser.role is admin and if reqUser.userId is resourceId, if it's not true throw Forbidden.
+
+/lib/mail.js:
+1. sendMail(to, subject, html): send create method for sending mails using `nodemailer` module.
+2. sendVerificationEmail(name, email, token, origin): create URL with origin argument, subject and message that will be sent via sendMail() method.
+3. sendResetPasswordEmail(name, email, token, origin): create URL with origin host, subject and message that will be sent via sendMail() method.
+
+/middlewares/auth.js:
+1. authenticate(req, res, next): check accessToken and refreshToken from req.signedCookies. Check if accessToken exists, if it does verify that accessToken and pass payload to req.user. Otherwise check if refreshToken is valid as well as if refreshToken in Token table already exists and if it's valid (existingToken.isValid). After all of that invoke attachCookieToResponse() method and pass payload to req.user.
+2. authorize(...roles) => async (req, res, next): if array of role(s) doesn't exist in req.user.role throw Forbidden.
+
+POST /api/v1/auth/register:
+1. Check if we get name, email, password, if not throw BadRequest.
+2. Check if email already exists. If does, throw BadRequest.
+3. Create verificationToken with `crypto` module (lenght 40 & converts it to string).
+4. Save name, email, password, verificationToken to User model.
+5. Send verificationEmail.
+
+POST /api/v1/auth/login:
+1. Check if we get email and password, if not throw BadRequest.
+2. Check if user with that email exists, if not throw Unauthorized.
+3. Check if password is correct and user is verified, if not throw Unauthorized.
+4. Create JWT payload for refreshToken. Check if refreshToken exists in Token table.
+5. If does, check if it's valid, if not throw Unauthorized. Generate new access and refresh tokens.
+6. If not, create refreshToken, ip, userAgent for Token table and save it as well as create access and refresh tokens for user.
+
+GET /api/v1/auth/logout:
+1. Delete existing refreshToken in Token table.
+2. Remove accessToken and refreshToken cookies.
+
+POST /api/v1/auth/verify-email:
+1. Check if we get email & verificationToken, if not throw BadRequest.
+2. Check if user with that email exists, if not throw Unauthorized.
+3. Check if verificationToken from existing user is equal to verifcationToken sent from the client, otherwise throw Unauthorized.
+4. Save isVerified, verificationDate & reset verificationToken.
+
+POST /api/v1/auth/forgot-password:
+1. Check for email, if it doesn't exist throw BadRequest.
+2. Check if user exist. If does, generate passwordToken, passwordTokenExpirationDate and send reset password email.
+
+POST /api/v1/auth/reset-password:
+1. Check for email, password and token from req.body, if it doesn't exist throw BadRequest.
+2. Check if user exists. If it does, create currentDate const, check if user.passwordToken === createHash(token) and user.passwordTokenExpirationDate > currentDate. If that condition is true, update password and remove passwordToken and passwordTokenExpirationDate.
+
+PRODUCTS API:
+
+/models/Product.js
+- name: string, trim, required, maxlenght (100)
+- price: number, required, default 0
+- description: string, required, maxlength
+- image: string, 
+- category: string
+- company: string
+- colors: string[]
+- featured: boolean, default false
+- freeShipping: boolean, default false
+- inventory: number, required
+- averageRating: number
+- numOfReviews: number
+- user: ObjectId, ref 'User', required
+
+create reviews virtual and delete all reviews on product deletion.
+
+GET /api/v1/products:
+1. Get all products by name, category, color, price, featured, freeShipping, rating. Apply sorting and pagination too.
+
+POST /api/v1/products:
+1. Create new product.
+
+GET /api/v1/products/:id:
+1. Get a single product by an id.
+
+PATCH /api/v1/products/:id:
+1. Update a single product.
+
+DELETE /api/v1/products/:id:
+1. Delete a single product.
+
+GET /api/v1/products/:id/reviews:
+1. Get all reviews by product id.
+
+REVIEWS API:
+
+/models/Review.js
+- rating: number, min 1, max 5, required
+- title: string, trim, required, maxlength
+- comment: string, required
+- user: ref 'User' required
+- product: ref 'Product' required
+
+reviewSchema index (user: 1, product: 1) unique
+
+create statics method `calculateAverageRating` and apply it in post save and remove hooks.
+
+ORDER API:
+
+/models/Order.js
+
+SingleOrderSchema:
+- name: String, required
+- image: String, required,
+- price: Number, required,
+- amount: Number, required
+- product: ref Product, required
+
+OrderSchema:
+- tax: Number, required,
+- shippingFee: Number, required
+- subtotal: Number, required
+- total: Number, required,
+- orderItems: SingleOrderSchema[]
+- status: Boolean, enum ['pending', 'failed', 'paid', 'delivered', 'canceled'], defaul pending,
+- user: ref User, required
+- clientSecret: String, required
+- paymentIntentId: String
+
